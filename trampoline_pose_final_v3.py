@@ -5,11 +5,12 @@ import csv
 from ultralytics import YOLO
 from collections import deque
 import os
+import time  # 【追加】クリックの間隔（時間）を計測するために導入
 
 # ==========================================================
 # 調整パラメータ設定エリア
 # ==========================================================
-VIDEO_PATH = "../MediapipePose/video-export/kawae0428-1-1.mp4"  # 解析対象の動画ファイルパスを指定してください
+VIDEO_PATH = "../MediapipePose/video-export/kawae0428-7-2.mp4"  # 解析対象の動画ファイルパスを指定してください
 
 # 使用する台の実際のサイズ（メートル単位）
 BLUE_REAL_WIDTH = 5.05   
@@ -24,9 +25,13 @@ OFFSET_Y = -0.5
 # 骨格全体のブレ抑制（1〜5で調整）
 SMOOTHING_FRAMES = 4       
 DETECTION_CONFIDENCE = 0.4     
+
+# 【追加】ダブルクリック誤検知防止用のインターバル（秒単位）
+# 0.3秒以内の連続クリックは無視します。環境に合わせて調整してください。
+CLICK_INTERVAL = 0.4 
 # ==========================================================
 
-# 【修正ポイント】入力動画名から拡張子を除いたベース名を取得し、出力動画名を自動生成
+# 入力動画名から拡張子を除いたベース名を取得し、出力動画名を自動生成
 video_base_name = os.path.splitext(os.path.basename(VIDEO_PATH))[0]
 OUTPUT_VIDEO_PATH = f"{video_base_name}_skeleton_output.mp4"
 
@@ -34,6 +39,9 @@ clicked_points = []
 all_landing_points = []  
 x_history = deque(maxlen=SMOOTHING_FRAMES)
 y_history = deque(maxlen=SMOOTHING_FRAMES)
+
+# 【追加】最後にクリックされた時間を保持する変数
+last_click_time = 0.0
 
 GUIDE_TEXTS = [
     "1/8: Click BLUE [Top-Left]", "2/8: Click BLUE [Top-Right]",
@@ -43,11 +51,19 @@ GUIDE_TEXTS = [
 ]
 
 def mouse_callback(event, x, y, flags, param):
-    global clicked_points
+    global clicked_points, last_click_time
     if event == cv2.EVENT_LBUTTONDOWN:
-        if len(clicked_points) < 8:
-            clicked_points.append([x, y])
-            print(f"座標登録 [{len(clicked_points)}/8]: X={x}, Y={y}")
+        current_time = time.time()
+        
+        # 【修正ポイント】前回のクリックから CLICK_INTERVAL（0.3秒）以上経っているか判定
+        if current_time - last_click_time >= CLICK_INTERVAL:
+            if len(clicked_points) < 8:
+                clicked_points.append([x, y])
+                print(f"座標登録 [{len(clicked_points)}/8]: X={x}, Y={y}")
+                last_click_time = current_time  # クリック成功時間を更新
+        else:
+            # チャタリング（連続検知）を無視したログ（不要なら消しても構いません）
+            print("警告: 連続クリックを検知したため無視しました。")
 
 # 2つのベクトル間の角度(0〜180度)を計算するヘルパー関数
 def calculate_angle(p1, p2, p3):
@@ -245,7 +261,7 @@ def main():
                                 print(f" 使用半身: {side_used}")
                                 print(f" 着地位置: X: {real_x:.2f}m, Y: {real_y:.2f}m")
                                 print(f" 1. 膝関節の角度     : {angle_knee:.1f}°")
-                                print(f" 2. 腕上げの角度     : {angle_arm:.1f}°")
+                                print(f" 2. 腕上げのangles   : {angle_arm:.1f}°")
                                 print(f" 3. 頭の傾き角度     : {angle_head:.1f}°")
                                 print(f" 4. 腰と上半身の角度 : {angle_waist:.1f}°")
                                 print(f"================================\n")
